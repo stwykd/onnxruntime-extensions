@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #pragma once
+#include <array>
 #include <list>
 #include <tuple>
 #include <vector>
@@ -44,6 +45,8 @@ class ImageProcessor : public OrtxObjectImpl {
                                                      ortc::Tensor<int64_t>** num_img_takens) const;
 
   OrtxStatus PreProcess(ort_extensions::span<ImageRawData> image_data, TensorResult& r) const;
+  OrtxStatus PreProcess(ort_extensions::span<ImageRawData> image_data, TensorResult& r,
+                        ort_extensions::span<std::array<int64_t, 3>> shapes) const;
 
   // Deprecated, using the next function instead
   static void ClearOutputs(ProcessorResult* r);
@@ -54,6 +57,7 @@ class ImageProcessor : public OrtxObjectImpl {
   ExecutionPlan op_plan_;
   std::string   name_;
   std::string   output_aligner_;
+  bool starts_with_decode_{};
 };
 
 }  // namespace ort_extensions

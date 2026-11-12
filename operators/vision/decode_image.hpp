@@ -91,6 +91,9 @@ struct DecodeImage: public internal::DecodeImage {
     return status;
   }
 
+  protected:
+    bool IsBgr() const { return is_bgr_; }
+
   private:
     std::string image_type_{"png"};
     bool is_bgr_{};  // flag to indicate if the output is in BGR format

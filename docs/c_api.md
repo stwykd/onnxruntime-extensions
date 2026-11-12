@@ -22,6 +22,26 @@ Most APIs accept raw data inputs such as audio, image compressed binary formats,
 
 **Image processing:** `OrtxCreateProcessor` can create an image processor object from a pre-defined workflow in JSON format to process image files into a tensor-like data type. An example code snippet can be found [here](../test/pp_api_test/test_processor.cc#L16).
 
+`OrtxLoadImages` and `OrtxCreateRawImages` take **encoded** image data. For decoded
+pixels, use `OrtxCreateImagesFromRawPixels(&images, descriptors, count)`, with an array
+of `OrtxRawImage` descriptors, then call `OrtxImagePreProcess` normally. The input
+is copied into owned RGB storage, so caller buffers may be released on return.
+The workflow must begin with `DecodeImage`; raw input bypasses the codec while
+retaining its RGB/BGR `color_space` and all following transforms. The ONNX
+`DecodeImage` operator's input contract is unchanged.
+
+Descriptors specify top-down RGB8, RGBA8 or BGRA8 byte order, width, height, positive
+row stride, and accessible buffer size. The last row need not include padding.
+Opaque/straight alpha is discarded, not composited. Premultiplied RGBA/BGRA uses
+`min(255, (channel * 255 + alpha / 2) / alpha)` and black for zero alpha; RGB8 cannot
+be premultiplied. This rounding is explicit, not a guarantee of matching every
+encoder. No color management, orientation or resizing occurs during loading.
+Dimensions are limited to 16384 per axis and 100 million pixels per image; a batch
+can own at most 512 MiB of RGB. Invalid input fails before copying any image.
+See `ortx_processor.h` for the full contract and `test_raw_pixels.cc` for examples.
+Windows callers in a sandbox that blocks WIC must still configure
+`OCOS_ENABLE_VENDOR_IMAGE_CODECS=OFF`: processor creation initializes its codecs.
+
 **Audio feature extraction:** `OrtxCreateSpeechFeatureExtractor` creates a speech feature extractor to obtain log mel spectrum data as input for the Whisper model. An example code snippet can be found [here](../test/pp_api_test/test_feature_extraction.cc#L15).
 
 **Note:** To build onnxruntime-extensions as a shared library with full functionality, ensure the `OCOS_ENABLE_AUDIO` and `OCOS_ENABLE_GPT2_TOKENIZER` build flags are enabled. For a minimal build with selected operators, you can use the static library version and disable the shared library build by setting `-DOCOS_BUILD_SHARED_LIB=OFF`.

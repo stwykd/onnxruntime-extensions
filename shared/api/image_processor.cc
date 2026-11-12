@@ -32,8 +32,28 @@ std::tuple<std::unique_ptr<ImageRawData[]>, size_t> LoadRawImages(const char* im
 using namespace ort_extensions;
 using json = nlohmann::json;
 
+namespace {
+// The processor's decoded input is already owned, contiguous RGB. Keep this
+// passthrough private to the processor; the ONNX DecodeImage op still takes bytes.
+struct DecodeImageOrPixels : ort_extensions::DecodeImage {
+  OrtxStatus Compute(const ortc::Tensor<uint8_t>& input, ortc::Tensor<uint8_t>& output) const {
+    if (input.Shape().size() != 3) {
+      return DecodeImage::Compute(input, output);
+    }
+    auto* dst = output.Allocate(input.Shape());
+    std::copy_n(input.Data(), input.NumberOfElement(), dst);
+    if (IsBgr()) {
+      for (int64_t i = 0; i < input.NumberOfElement(); i += 3) {
+        std::swap(dst[i], dst[i + 2]);
+      }
+    }
+    return {};
+  }
+};
+}  // namespace
+
 Operation::KernelRegistry ImageProcessor::kernel_registry_ = {
-    {"DecodeImage", []() { return CreateKernelInstance(&ort_extensions::DecodeImage::Compute); }},
+    {"DecodeImage", []() { return CreateKernelInstance(&DecodeImageOrPixels::Compute); }},
     {"Resize", []() { return CreateKernelInstance(&Resize::Compute); }},
     {"Rescale", []() { return CreateKernelInstance(&Rescale::Compute); }},
     {"Normalize", []() { return CreateKernelInstance(&Normalize::Compute); }},
@@ -83,6 +103,7 @@ OrtxStatus ImageProcessor::Init(std::string_view processor_def) {
     return {kOrtxErrorInvalidArgument, "[ImageProcessor]: transforms field is missing."};
   }
 
+  starts_with_decode_ = transforms[0].at("operation").at("type") == "DecodeImage";
   return op_plan_.Init(transforms, kernel_registry_);
 }
 
@@ -155,12 +176,29 @@ std::tuple<OrtxStatus, ProcessorResult> ImageProcessor::PreProcess(ort_extension
 }
 
 OrtxStatus ImageProcessor::PreProcess(ort_extensions::span<ImageRawData> image_data, TensorResult& r) const {
+  return PreProcess(image_data, r, {nullptr, size_t{0}});
+}
+
+OrtxStatus ImageProcessor::PreProcess(ort_extensions::span<ImageRawData> image_data, TensorResult& r,
+                                    ort_extensions::span<std::array<int64_t, 3>> shapes) const {
+  if (shapes.size() != 0 && (!starts_with_decode_ || shapes.size() != image_data.size())) {
+    return {kOrtxErrorInvalidArgument, "Raw pixels require a leading DecodeImage transform and one shape per image."};
+  }
   std::vector<TensorArgs> inputs(image_data.size());
   std::vector<TensorPtr> input_tensor_objects(image_data.size());
   for (size_t i = 0; i < image_data.size(); ++i) {
     auto& ts_input = inputs[i];
     ImageRawData& image = image_data[i];
     std::vector<int64_t> shape = {static_cast<int64_t>(image.size())};
+    if (shapes.size() != 0) {
+      const auto& s = shapes[i];
+      if (s[0] <= 0 || s[0] > 16384 || s[1] <= 0 || s[1] > 16384 ||
+          s[2] != 3 || s[0] * s[1] > 100'000'000 ||
+          static_cast<uint64_t>(s[0] * s[1] * 3) != image.size()) {
+        return {kOrtxErrorInvalidArgument, "Invalid decoded RGB image shape."};
+      }
+      shape.assign(s.begin(), s.end());
+    }
     input_tensor_objects[i] = std::make_unique<ortc::Tensor<uint8_t>>(shape, image.data());
     ts_input.push_back(input_tensor_objects[i].get());
   }

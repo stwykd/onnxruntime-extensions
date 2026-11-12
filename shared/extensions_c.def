@@ -33,3 +33,4 @@ EXPORTS
  OrtxDisposeOnly @31
  OrtxTokenizeLiteral @35
  OrtxGetTokenWordPieceInfo @36
+ OrtxCreateImagesFromRawPixels @37
