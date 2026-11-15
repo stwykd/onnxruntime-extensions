@@ -15,6 +15,20 @@ using namespace ort_extensions;
 
 thread_local std::string ReturnableStatus::last_error_message_;
 
+void ReturnableStatus::SetLastErrorMessage(const char* message) noexcept {
+  try {
+    last_error_message_ = message;
+  } catch (...) {
+    // Short enough for the string's inline buffer, so this doesn't allocate in practice.
+    static constexpr char kOutOfMemory[] = "Out of memory";
+    try {
+      last_error_message_.assign(kOutOfMemory, sizeof(kOutOfMemory) - 1);
+    } catch (...) {
+      last_error_message_.clear();
+    }
+  }
+}
+
 OrtxStatus OrtxObjectImpl::IsInstanceOf(extObjectKind_t kind) const {
   if (ext_kind_ != static_cast<int>(kind)) {
     return {extError_t::kOrtxErrorInvalidArgument, "Object is not an instance of the requested type"};

@@ -6,6 +6,8 @@
 
 #include "c_api_utils.hpp"
 
+#include <new>
+
 using namespace ort_extensions;
 
 extError_t ORTX_API_CALL OrtxCreateProcessor(OrtxProcessor** processor, const char* def) {
@@ -32,24 +34,36 @@ struct RawImagesObject : public OrtxObjectImpl {
   std::vector<ImageShape> shapes;  // empty for encoded images
 };
 
+// Nothing throws out of this function. Running out of memory returns kOrtxErrorOutOfMemory, and an error
+// message that can't be copied is published as "Out of memory".
 extError_t ORTX_API_CALL OrtxCreateImagesFromPixels(OrtxRawImages** images, const void* data[],
                                                     const size_t data_sizes[], const uint32_t widths[],
                                                     const uint32_t heights[], const size_t row_strides[],
                                                     OrtxPixelFormat format, size_t num_images) {
   if (images == nullptr) {
-    ReturnableStatus::last_error_message_ = "Invalid argument";
+    ReturnableStatus::SetLastErrorMessage("Invalid argument");
     return kOrtxErrorInvalidArgument;
   }
   *images = nullptr;
 
-  auto images_obj = std::make_unique<RawImagesObject>();
-  ReturnableStatus status = LoadImagesFromPixels(data, data_sizes, widths, heights, row_strides, format, num_images,
-                                                 images_obj->images, images_obj->shapes);
-  if (status.IsOk()) {
+  try {
+    auto images_obj = std::make_unique<RawImagesObject>();
+    const OrtxStatus status = LoadImagesFromPixels(data, data_sizes, widths, heights, row_strides, format, num_images,
+                                                   images_obj->images, images_obj->shapes);
+    if (!status.IsOk()) {
+      ReturnableStatus::SetLastErrorMessage(status.Message());
+      return status.Code();
+    }
     images_obj->num_images = num_images;
     *images = static_cast<OrtxRawImages*>(images_obj.release());
+    return kOrtxOK;
+  } catch (const std::bad_alloc&) {
+    ReturnableStatus::SetLastErrorMessage("Out of memory loading image pixels.");
+    return kOrtxErrorOutOfMemory;
+  } catch (...) {
+    ReturnableStatus::SetLastErrorMessage("Unexpected error loading image pixels.");
+    return kOrtxErrorInternal;
   }
-  return status.Code();
 }
 
 extError_t ORTX_API_CALL OrtxCreateRawImages(OrtxRawImages** images, const void* data[], const int64_t sizes[],

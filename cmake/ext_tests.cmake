@@ -154,6 +154,18 @@ if (OCOS_ENABLE_C_API AND OCOS_BUILD_SHARED_LIB)
     "$<TARGET_PROPERTY:ortcustomops,INTERFACE_INCLUDE_DIRECTORIES>"
     "$<TARGET_PROPERTY:ocos_operators,INTERFACE_INCLUDE_DIRECTORIES>")
 
+  if (NOT IOS)
+    # Replaces the global operator new to fail chosen allocations, so it gets its own executable.
+    add_test_target(TARGET alloc_failure_test
+      TEST_SOURCES "${TEST_SRC_DIR}/alloc_failure_test/test_image_pixels_alloc.cc"
+      LIBRARIES onnxruntime_extensions ${ocos_libraries})
+    target_compile_definitions(alloc_failure_test PRIVATE ${OCOS_COMPILE_DEFINITIONS})
+    target_include_directories(alloc_failure_test PRIVATE
+      ${PROJECT_SOURCE_DIR}/
+      "$<TARGET_PROPERTY:ortcustomops,INTERFACE_INCLUDE_DIRECTORIES>"
+      "$<TARGET_PROPERTY:ocos_operators,INTERFACE_INCLUDE_DIRECTORIES>")
+  endif()
+
   add_test_target(TARGET tokenizer_shared_api_test
     TEST_SOURCES "${TEST_SRC_DIR}/shared_api_test/test_tokenizer_literal.cc"
     LIBRARIES extensions_shared

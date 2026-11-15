@@ -74,9 +74,10 @@ typedef enum OrtxPixelFormat {
  * (unpremultiplied) or opaque. Callers convert premultiplied pixels first. No color management,
  * orientation or resizing happens here.
  *
- * The pixels are copied, so callers may release them on return. On failure nothing is copied and
- * `*images` is null. The processor's workflow must start with DecodeImage: for these images it skips
- * the codec but keeps its `color_space`, and every later transform is unchanged.
+ * The pixels are copied, so callers may release them on return. Invalid input is rejected before any
+ * pixels are copied; on any failure, including kOrtxErrorOutOfMemory, `*images` is null and the call
+ * doesn't throw. The processor's workflow must start with DecodeImage: for these images it skips the
+ * codec but keeps its `color_space`, and every later transform is unchanged.
  *
  * @param[out] images The created image batch, destroyed with OrtxDisposeOnly.
  * @param[in] data Array of num_images pixel buffers.

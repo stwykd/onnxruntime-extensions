@@ -196,11 +196,15 @@ struct ReturnableStatus {
  public:
   thread_local static std::string last_error_message_;
 
+  // Sets the message OrtxGetLastErrorMessage returns. It never throws: if copying the message runs out of
+  // memory, the message becomes "Out of memory" instead.
+  static void SetLastErrorMessage(const char* message) noexcept;
+
   ReturnableStatus() = default;
   ReturnableStatus(OrtxStatus&& status) : status_(status) {}
   ~ReturnableStatus() {
     if (!status_.IsOk()) {
-      last_error_message_ = status_.Message();
+      SetLastErrorMessage(status_.Message());
     }
   }
 

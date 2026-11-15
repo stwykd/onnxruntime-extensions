@@ -77,41 +77,37 @@ OrtxStatus LoadImagesFromPixels(const void* const data[], const size_t data_size
     total_bytes += rgb_bytes;
   }
 
-  try {
-    auto rgb_images = std::make_unique<ImageRawData[]>(num_images);
-    std::vector<ImageShape> rgb_shapes;
-    rgb_shapes.reserve(num_images);
-    for (size_t i = 0; i < num_images; ++i) {
-      const size_t width = widths[i];
-      const size_t height = heights[i];
-      auto& rgb = rgb_images[i];
-      rgb.resize(width * height * 3);
-      rgb_shapes.push_back({static_cast<int64_t>(height), static_cast<int64_t>(width), 3});
-      for (size_t y = 0; y < height; ++y) {
-        const uint8_t* src = static_cast<const uint8_t*>(data[i]) + y * row_strides[i];
-        uint8_t* dst = rgb.data() + y * width * 3;
-        if (format == OrtxPixelFormat_RGB8) {
-          std::copy_n(src, width * 3, dst);
-        } else if (format == OrtxPixelFormat_RGBA8) {
-          for (size_t x = 0; x < width; ++x, src += 4, dst += 3) {
-            dst[0] = src[0];
-            dst[1] = src[1];
-            dst[2] = src[2];
-          }
-        } else {
-          for (size_t x = 0; x < width; ++x, src += 4, dst += 3) {
-            dst[0] = src[2];
-            dst[1] = src[1];
-            dst[2] = src[0];
-          }
+  auto rgb_images = std::make_unique<ImageRawData[]>(num_images);
+  std::vector<ImageShape> rgb_shapes;
+  rgb_shapes.reserve(num_images);
+  for (size_t i = 0; i < num_images; ++i) {
+    const size_t width = widths[i];
+    const size_t height = heights[i];
+    auto& rgb = rgb_images[i];
+    rgb.resize(width * height * 3);
+    rgb_shapes.push_back({static_cast<int64_t>(height), static_cast<int64_t>(width), 3});
+    for (size_t y = 0; y < height; ++y) {
+      const uint8_t* src = static_cast<const uint8_t*>(data[i]) + y * row_strides[i];
+      uint8_t* dst = rgb.data() + y * width * 3;
+      if (format == OrtxPixelFormat_RGB8) {
+        std::copy_n(src, width * 3, dst);
+      } else if (format == OrtxPixelFormat_RGBA8) {
+        for (size_t x = 0; x < width; ++x, src += 4, dst += 3) {
+          dst[0] = src[0];
+          dst[1] = src[1];
+          dst[2] = src[2];
+        }
+      } else {
+        for (size_t x = 0; x < width; ++x, src += 4, dst += 3) {
+          dst[0] = src[2];
+          dst[1] = src[1];
+          dst[2] = src[0];
         }
       }
     }
-    images = std::move(rgb_images);
-    shapes = std::move(rgb_shapes);
-  } catch (const std::bad_alloc&) {
-    return {kOrtxErrorOutOfMemory, "Out of memory copying image pixels."};
   }
+  images = std::move(rgb_images);
+  shapes = std::move(rgb_shapes);
   return {};
 }
 }  // namespace ort_extensions
