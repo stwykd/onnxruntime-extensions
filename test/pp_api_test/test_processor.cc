@@ -1086,4 +1086,15 @@ TEST(ProcessorTest, TestPadToSquare) {
   ASSERT_NE(OrtxCreateProcessor(processor.ToBeAssigned(), "data/processor/pad_to_square_invalid_fill.json"), kOrtxOK);
   EXPECT_NE(std::string(OrtxGetLastErrorMessage()).find("fill values must be in [0, 255]"), std::string::npos)
       << OrtxGetLastErrorMessage();
+
+  // Every fill value is checked as written: one that starts with an integer must not have later values
+  // truncated into range, and a non-number in it must be rejected rather than throw.
+  for (const char* fill :
+       {"[0, -0.5, 255.9]", "[0, 128.5, 0]", "[0.0, 128, 300]", "[1.5, 2, 3]", "[0, true, 0]", "[0, \"0\", 0]"}) {
+    const std::string config =
+        std::string(R"({"processor": {"name": "pad_to_square_invalid_fill", "transforms": [{"operation": )"
+                    R"({"name": "pad_to_square", "type": "PadToSquare", "attrs": {"fill": )") +
+        fill + "}}}]}}";
+    EXPECT_NE(OrtxCreateProcessor(processor.ToBeAssigned(), config.c_str()), kOrtxOK) << fill;
+  }
 }

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <list>
 #include <tuple>
 #include <string>
@@ -180,13 +181,15 @@ class KernelStruct : public KernelDef {
       } else if (value.is_number_float()) {
         attr_dict[key] = value.template get<double>();
       } else if (value.is_array() && value.size() > 0) {
-        auto& elem_0 = value.at(0);
-        if (elem_0.is_number_float()) {
-          attr_dict[key] = value.template get<std::vector<double>>();
-        } else if (elem_0.is_string()) {
-          attr_dict[key] = value.template get<std::vector<std::string>>();
-        } else if (elem_0.is_number_integer() || elem_0.is_number_unsigned()) {
+        // The element type comes from every element, not just the first, so e.g. [0, -0.5, 255.9]
+        // isn't truncated to integers and a non-number after a number doesn't throw.
+        auto all_of = [&value](auto pred) { return std::all_of(value.begin(), value.end(), pred); };
+        if (all_of([](const json& elem) { return elem.is_number_integer(); })) {
           attr_dict[key] = value.template get<std::vector<int64_t>>();
+        } else if (all_of([](const json& elem) { return elem.is_number(); })) {
+          attr_dict[key] = value.template get<std::vector<double>>();
+        } else if (all_of([](const json& elem) { return elem.is_string(); })) {
+          attr_dict[key] = value.template get<std::vector<std::string>>();
         } else {
           return {kOrtxErrorCorruptData, "Unsupported mix types in attribute value."};
         }
