@@ -22,25 +22,27 @@ Most APIs accept raw data inputs such as audio, image compressed binary formats,
 
 **Image processing:** `OrtxCreateProcessor` can create an image processor object from a pre-defined workflow in JSON format to process image files into a tensor-like data type. An example code snippet can be found [here](../test/pp_api_test/test_processor.cc#L16).
 
-`OrtxLoadImages` and `OrtxCreateRawImages` take **encoded** image data. For decoded
-pixels, use `OrtxCreateImagesFromRawPixels(&images, descriptors, count)`, with an array
-of `OrtxRawImage` descriptors, then call `OrtxImagePreProcess` normally. The input
-is copied into owned RGB storage, so caller buffers may be released on return.
-The workflow must begin with `DecodeImage`; raw input bypasses the codec while
-retaining its RGB/BGR `color_space` and all following transforms. The ONNX
-`DecodeImage` operator's input contract is unchanged.
+`OrtxLoadImages` and `OrtxCreateRawImages` take **encoded** image data. Applications that already hold
+decoded pixels can pass them with `OrtxCreateImagesFromPixels` instead of encoding them, then call
+`OrtxImagePreProcess` as usual:
 
-Descriptors specify top-down RGB8, RGBA8 or BGRA8 byte order, width, height, positive
-row stride, and accessible buffer size. The last row need not include padding.
-Opaque/straight alpha is discarded, not composited. Premultiplied RGBA/BGRA uses
-`min(255, (channel * 255 + alpha / 2) / alpha)` and black for zero alpha; RGB8 cannot
-be premultiplied. This rounding is explicit, not a guarantee of matching every
-encoder. No color management, orientation or resizing occurs during loading.
-Dimensions are limited to 16384 per axis and 100 million pixels per image; a batch
-can own at most 512 MiB of RGB. Invalid input fails before copying any image.
-See `ortx_processor.h` for the full contract and `test_raw_pixels.cc` for examples.
-Windows callers in a sandbox that blocks WIC must still configure
-`OCOS_ENABLE_VENDOR_IMAGE_CODECS=OFF`: processor creation initializes its codecs.
+```c
+const void* data[] = {pixels};
+size_t size = row_stride * (height - 1) + width * 4;
+OrtxRawImages* images = NULL;
+extError_t err = OrtxCreateImagesFromPixels(&images, data, &size, &width, &height, &row_stride,
+                                            OrtxPixelFormat_BGRA8, 1);
+```
+
+Each image is a top-down buffer of 8-bit RGB, RGBA or BGRA pixels with a row stride in bytes, so
+rows can be padded. Alpha is dropped without compositing, as the libpng decoder does: pass straight
+(unpremultiplied) or opaque pixels, and convert premultiplied ones first. The pixels are copied, so
+the caller can free them on return. Images are limited to 16384 pixels per side and 100 million
+pixels, the decoders' limits, and a batch to 512 MiB of RGB. The workflow must start with
+`DecodeImage`, which skips the codec for these images but keeps its `color_space`; later transforms
+are unchanged. No color management or orientation is applied. A Windows build used where WIC is
+unavailable still needs `OCOS_ENABLE_VENDOR_IMAGE_CODECS=OFF`, because creating the processor
+initializes the decoder.
 
 **Audio feature extraction:** `OrtxCreateSpeechFeatureExtractor` creates a speech feature extractor to obtain log mel spectrum data as input for the Whisper model. An example code snippet can be found [here](../test/pp_api_test/test_feature_extraction.cc#L15).
 

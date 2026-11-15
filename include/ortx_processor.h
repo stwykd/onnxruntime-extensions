@@ -53,47 +53,45 @@ extError_t ORTX_API_CALL OrtxLoadImages(OrtxRawImages** images, const char** ima
  */
 extError_t ORTX_API_CALL OrtxCreateRawImages(OrtxRawImages** images, const void* data[], const int64_t sizes[], size_t num_images);
 
-typedef enum {
-  kOrtxPixelFormatRGB8 = 0,
-  kOrtxPixelFormatRGBA8 = 1,
-  kOrtxPixelFormatBGRA8 = 2,
+/** Byte order of one 8-bit pixel in OrtxCreateImagesFromPixels. Alpha, if present, is ignored. */
+typedef enum OrtxPixelFormat {
+  OrtxPixelFormat_RGB8 = 0,   // R, G, B
+  OrtxPixelFormat_RGBA8 = 1,  // R, G, B, A
+  OrtxPixelFormat_BGRA8 = 2,  // B, G, R, A (Skia's kBGRA_8888, Windows' 32 bit DIBs)
 } OrtxPixelFormat;
 
-typedef enum {
-  kOrtxAlphaOpaque = 0,
-  kOrtxAlphaStraight = 1,
-  kOrtxAlphaPremultiplied = 2,
-} OrtxAlphaMode;
-
-typedef struct {
-  const void* data;
-  size_t data_size;
-  uint32_t width;
-  uint32_t height;
-  size_t row_stride;
-  OrtxPixelFormat format;
-  OrtxAlphaMode alpha_mode;
-} OrtxRawImage;
-
 /**
- * @brief Copies top-down, interleaved uint8 pixels into an owned RGB image batch.
+ * @brief Copies decoded 8-bit pixels into an image batch, so PNG/JPEG encoding can be skipped.
  *
- * Unlike OrtxCreateRawImages (encoded bytes), this accepts decoded pixels. Each
- * row_stride must be at least width * channels; data_size must cover the last
- * pixel, not necessarily the final row's padding. Dimensions must be nonzero,
- * at most 16384 each, and at most 100 million pixels per image. The batch is
- * limited to 512 MiB of owned RGB pixels.
+ * Unlike OrtxCreateRawImages, which takes encoded bytes, each image here is a top-down buffer of
+ * interleaved pixels in the given byte order, `widths[i]` pixels per row and `heights[i]` rows.
+ * `row_strides[i]` is the distance between rows in bytes, at least `widths[i] * channels`, so row
+ * padding is allowed. `data_sizes[i]` must cover `(heights[i] - 1) * row_strides[i] + widths[i] * channels`;
+ * the last row's padding isn't read. Widths and heights must be nonzero and at most 16384, with at
+ * most 100 million pixels per image (the codecs' limits), and the batch can hold at most 512 MiB of RGB.
  *
- * Opaque and straight alpha are discarded without compositing. Premultiplied
- * RGBA/BGRA is unpremultiplied with min(255, (channel * 255 + alpha / 2) / alpha);
- * zero alpha produces black. RGB8 cannot be premultiplied. No color management,
- * orientation or resizing is performed. Callers may release the input on return.
+ * Alpha is dropped without compositing, as the libpng decoder does, so pixels must be straight
+ * (unpremultiplied) or opaque. Callers convert premultiplied pixels first. No color management,
+ * orientation or resizing happens here.
  *
- * Preprocessing requires a leading DecodeImage transform; only decoding is
- * bypassed, including respecting its RGB/BGR color_space attribute.
- * On failure, *images is null.
+ * The pixels are copied, so callers may release them on return. On failure nothing is copied and
+ * `*images` is null. The processor's workflow must start with DecodeImage: for these images it skips
+ * the codec but keeps its `color_space`, and every later transform is unchanged.
+ *
+ * @param[out] images The created image batch, destroyed with OrtxDisposeOnly.
+ * @param[in] data Array of num_images pixel buffers.
+ * @param[in] data_sizes Array of num_images buffer sizes in bytes.
+ * @param[in] widths Array of num_images widths in pixels.
+ * @param[in] heights Array of num_images heights in pixels.
+ * @param[in] row_strides Array of num_images row strides in bytes.
+ * @param[in] format Pixel byte order of every image in the batch.
+ * @param[in] num_images Number of images, at least one.
+ * @return An `extError_t` value indicating the success or failure of the operation.
  */
-extError_t ORTX_API_CALL OrtxCreateImagesFromRawPixels(OrtxRawImages** images, const OrtxRawImage* data, size_t num_images);
+extError_t ORTX_API_CALL OrtxCreateImagesFromPixels(OrtxRawImages** images, const void* data[],
+                                                    const size_t data_sizes[], const uint32_t widths[],
+                                                    const uint32_t heights[], const size_t row_strides[],
+                                                    OrtxPixelFormat format, size_t num_images);
 
 /**
  * @brief Pre-processes the given raw images using the specified processor.

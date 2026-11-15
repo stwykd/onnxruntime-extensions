@@ -19,3 +19,10 @@ extern "C"
 #endif
     extError_t
     get_word_piece_info(const OrtxTokenizer* tokenizer, extTokenId_t token_id, OrtxWordPieceInfo* info);
+
+#ifdef __cplusplus
+extern "C"
+#endif
+    extError_t
+    create_images_from_bgra(const void* pixels, size_t data_size, uint32_t width, uint32_t height, size_t row_stride,
+                            OrtxRawImages** images);

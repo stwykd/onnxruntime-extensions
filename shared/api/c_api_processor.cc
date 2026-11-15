@@ -5,7 +5,6 @@
 #include "image_processor.h"
 
 #include "c_api_utils.hpp"
-#include <limits>
 
 using namespace ort_extensions;
 
@@ -30,92 +29,27 @@ struct RawImagesObject : public OrtxObjectImpl {
   RawImagesObject() : OrtxObjectImpl(kOrtxKindRawImages) {}
   std::unique_ptr<ort_extensions::ImageRawData[]> images;
   size_t num_images{};
-  std::vector<std::array<int64_t, 3>> shapes;
+  std::vector<ImageShape> shapes;  // empty for encoded images
 };
 
-extError_t ORTX_API_CALL OrtxCreateImagesFromRawPixels(OrtxRawImages** images, const OrtxRawImage* data,
-                                                     size_t num_images) {
-  if (images) *images = nullptr;
-  auto invalid = [](const char* message) {
-    ReturnableStatus::last_error_message_ = message;
+extError_t ORTX_API_CALL OrtxCreateImagesFromPixels(OrtxRawImages** images, const void* data[],
+                                                    const size_t data_sizes[], const uint32_t widths[],
+                                                    const uint32_t heights[], const size_t row_strides[],
+                                                    OrtxPixelFormat format, size_t num_images) {
+  if (images == nullptr) {
+    ReturnableStatus::last_error_message_ = "Invalid argument";
     return kOrtxErrorInvalidArgument;
-  };
-  if (!images || !data || num_images == 0) {
-    return invalid("Raw pixels require non-null arguments and at least one image.");
   }
-  constexpr size_t max_bytes = 512 * 1024 * 1024;
-  if (num_images > max_bytes / 3) {
-    return invalid("Raw pixel batch exceeds the 512 MiB limit.");
+  *images = nullptr;
+
+  auto images_obj = std::make_unique<RawImagesObject>();
+  ReturnableStatus status = LoadImagesFromPixels(data, data_sizes, widths, heights, row_strides, format, num_images,
+                                                 images_obj->images, images_obj->shapes);
+  if (status.IsOk()) {
+    images_obj->num_images = num_images;
+    *images = static_cast<OrtxRawImages*>(images_obj.release());
   }
-  size_t total = 0;
-  for (size_t i = 0; i < num_images; ++i) {
-    const auto& image = data[i];
-    if (!image.data || image.width == 0 || image.height == 0 ||
-        image.width > 16384 || image.height > 16384 ||
-        uint64_t{image.width} * image.height > 100'000'000) {
-      return invalid("Raw image dimensions must be nonzero, at most 16384, and at most 100 million pixels.");
-    }
-    if (image.format != kOrtxPixelFormatRGB8 && image.format != kOrtxPixelFormatRGBA8 &&
-        image.format != kOrtxPixelFormatBGRA8) {
-      return invalid("Unsupported raw image pixel format.");
-    }
-    if (image.alpha_mode != kOrtxAlphaOpaque && image.alpha_mode != kOrtxAlphaStraight &&
-        image.alpha_mode != kOrtxAlphaPremultiplied) {
-      return invalid("Unsupported raw image alpha mode.");
-    }
-    if (image.format == kOrtxPixelFormatRGB8 && image.alpha_mode == kOrtxAlphaPremultiplied) {
-      return invalid("RGB8 cannot have premultiplied alpha.");
-    }
-    const size_t channels = image.format == kOrtxPixelFormatRGB8 ? 3 : 4;
-    const size_t row_bytes = image.width * channels;
-    if (image.row_stride < row_bytes ||
-        (image.height > 1 && image.row_stride > (std::numeric_limits<size_t>::max() - row_bytes) / (image.height - 1)) ||
-        image.data_size < (image.height - 1) * image.row_stride + row_bytes) {
-      return invalid("Raw image row stride or buffer size is invalid.");
-    }
-    const size_t bytes = size_t{image.width} * image.height * 3;
-    if (bytes > max_bytes - total) {
-      return invalid("Raw pixel batch exceeds the 512 MiB limit.");
-    }
-    total += bytes;
-  }
-  try {
-    auto object = std::make_unique<RawImagesObject>();
-    object->images = std::make_unique<ImageRawData[]>(num_images);
-    object->num_images = num_images;
-    object->shapes.reserve(num_images);
-    for (size_t i = 0; i < num_images; ++i) {
-      const auto& image = data[i];
-      auto& rgb = object->images[i];
-      rgb.resize(size_t{image.width} * image.height * 3);
-      object->shapes.push_back({image.height, image.width, 3});
-      const size_t channels = image.format == kOrtxPixelFormatRGB8 ? 3 : 4;
-      const bool bgr = image.format == kOrtxPixelFormatBGRA8;
-      for (size_t y = 0; y < image.height; ++y) {
-        const auto* src = static_cast<const uint8_t*>(image.data) + y * image.row_stride;
-        auto* dst = rgb.data() + y * image.width * 3;
-        if (channels == 3) {
-          std::copy_n(src, image.width * 3, dst);
-          continue;
-        }
-        for (size_t x = 0; x < image.width; ++x) {
-          for (size_t c = 0; c < 3; ++c) {
-            unsigned value = src[x * channels + (bgr ? 2 - c : c)];
-            if (image.alpha_mode == kOrtxAlphaPremultiplied) {
-              const unsigned alpha = src[x * channels + 3];
-              value = alpha ? std::min(255u, (value * 255 + alpha / 2) / alpha) : 0;
-            }
-            dst[x * 3 + c] = static_cast<uint8_t>(value);
-          }
-        }
-      }
-    }
-    *images = static_cast<OrtxRawImages*>(object.release());
-    return kOrtxOK;
-  } catch (const std::exception& e) {
-    ReturnableStatus::last_error_message_ = e.what();
-    return kOrtxErrorInternal;
-  }
+  return status.Code();
 }
 
 extError_t ORTX_API_CALL OrtxCreateRawImages(OrtxRawImages** images, const void* data[], const int64_t sizes[],

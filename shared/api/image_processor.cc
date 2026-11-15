@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+#include <limits>
+#include <string>
 #include <string_view>
 
 #include "nlohmann/json.hpp"
@@ -26,6 +28,91 @@ std::tuple<std::unique_ptr<ImageRawData[]>, size_t> LoadRawImages(
 
 std::tuple<std::unique_ptr<ImageRawData[]>, size_t> LoadRawImages(const char* image_paths[], size_t num_images) {
   return ort_extensions::LoadRawData<const char* const*, ImageRawData>(image_paths, image_paths + num_images);
+}
+
+OrtxStatus LoadImagesFromPixels(const void* const data[], const size_t data_sizes[], const uint32_t widths[],
+                                const uint32_t heights[], const size_t row_strides[], OrtxPixelFormat format,
+                                size_t num_images, std::unique_ptr<ImageRawData[]>& images,
+                                std::vector<ImageShape>& shapes) {
+  constexpr size_t kMaxBatchBytes = size_t{512} * 1024 * 1024;
+  if (!data || !data_sizes || !widths || !heights || !row_strides || num_images == 0) {
+    return {kOrtxErrorInvalidArgument, "Images from pixels need non-null arrays and at least one image."};
+  }
+  if (num_images > kMaxBatchBytes / 3) {
+    return {kOrtxErrorInvalidArgument, "Images from pixels exceed the 512 MiB batch limit."};
+  }
+  if (format != OrtxPixelFormat_RGB8 && format != OrtxPixelFormat_RGBA8 && format != OrtxPixelFormat_BGRA8) {
+    return {kOrtxErrorInvalidArgument, "Unsupported pixel format."};
+  }
+  const size_t channels = format == OrtxPixelFormat_RGB8 ? 3 : 4;
+
+  size_t total_bytes = 0;
+  for (size_t i = 0; i < num_images; ++i) {
+    const auto error = [i](const char* message) {
+      return OrtxStatus(kOrtxErrorInvalidArgument, "Image " + std::to_string(i) + ": " + message);
+    };
+    const uint64_t width = widths[i];
+    const uint64_t height = heights[i];
+    if (!data[i]) {
+      return error("pixel data is null.");
+    }
+    if (width == 0 || height == 0 || width > internal::kMaxImageDimension || height > internal::kMaxImageDimension ||
+        width * height > internal::kMaxPixelCount) {
+      return error("width and height must be 1 to 16384, with at most 100 million pixels.");
+    }
+    const size_t row_bytes = static_cast<size_t>(width) * channels;
+    if (row_strides[i] < row_bytes) {
+      return error("row stride is less than width * channels.");
+    }
+    if (height > 1 && row_strides[i] > (std::numeric_limits<size_t>::max() - row_bytes) / (height - 1)) {
+      return error("row stride * height overflows.");
+    }
+    if (data_sizes[i] < static_cast<size_t>(height - 1) * row_strides[i] + row_bytes) {
+      return error("data size is less than (height - 1) * row stride + width * channels.");
+    }
+    const size_t rgb_bytes = static_cast<size_t>(width * height * 3);
+    if (rgb_bytes > kMaxBatchBytes - total_bytes) {
+      return error("the batch exceeds 512 MiB of RGB pixels.");
+    }
+    total_bytes += rgb_bytes;
+  }
+
+  try {
+    auto rgb_images = std::make_unique<ImageRawData[]>(num_images);
+    std::vector<ImageShape> rgb_shapes;
+    rgb_shapes.reserve(num_images);
+    for (size_t i = 0; i < num_images; ++i) {
+      const size_t width = widths[i];
+      const size_t height = heights[i];
+      auto& rgb = rgb_images[i];
+      rgb.resize(width * height * 3);
+      rgb_shapes.push_back({static_cast<int64_t>(height), static_cast<int64_t>(width), 3});
+      for (size_t y = 0; y < height; ++y) {
+        const uint8_t* src = static_cast<const uint8_t*>(data[i]) + y * row_strides[i];
+        uint8_t* dst = rgb.data() + y * width * 3;
+        if (format == OrtxPixelFormat_RGB8) {
+          std::copy_n(src, width * 3, dst);
+        } else if (format == OrtxPixelFormat_RGBA8) {
+          for (size_t x = 0; x < width; ++x, src += 4, dst += 3) {
+            dst[0] = src[0];
+            dst[1] = src[1];
+            dst[2] = src[2];
+          }
+        } else {
+          for (size_t x = 0; x < width; ++x, src += 4, dst += 3) {
+            dst[0] = src[2];
+            dst[1] = src[1];
+            dst[2] = src[0];
+          }
+        }
+      }
+    }
+    images = std::move(rgb_images);
+    shapes = std::move(rgb_shapes);
+  } catch (const std::bad_alloc&) {
+    return {kOrtxErrorOutOfMemory, "Out of memory copying image pixels."};
+  }
+  return {};
 }
 }  // namespace ort_extensions
 
@@ -181,9 +268,9 @@ OrtxStatus ImageProcessor::PreProcess(ort_extensions::span<ImageRawData> image_d
 }
 
 OrtxStatus ImageProcessor::PreProcess(ort_extensions::span<ImageRawData> image_data, TensorResult& r,
-                                    ort_extensions::span<std::array<int64_t, 3>> shapes) const {
+                                      ort_extensions::span<ImageShape> shapes) const {
   if (shapes.size() != 0 && (!starts_with_decode_ || shapes.size() != image_data.size())) {
-    return {kOrtxErrorInvalidArgument, "Raw pixels require a leading DecodeImage transform and one shape per image."};
+    return {kOrtxErrorInvalidArgument, "Images from pixels need a workflow that starts with DecodeImage."};
   }
   std::vector<TensorArgs> inputs(image_data.size());
   std::vector<TensorPtr> input_tensor_objects(image_data.size());
@@ -193,9 +280,7 @@ OrtxStatus ImageProcessor::PreProcess(ort_extensions::span<ImageRawData> image_d
     std::vector<int64_t> shape = {static_cast<int64_t>(image.size())};
     if (shapes.size() != 0) {
       const auto& s = shapes[i];
-      if (s[0] <= 0 || s[0] > 16384 || s[1] <= 0 || s[1] > 16384 ||
-          s[2] != 3 || s[0] * s[1] > 100'000'000 ||
-          static_cast<uint64_t>(s[0] * s[1] * 3) != image.size()) {
+      if (s[0] <= 0 || s[1] <= 0 || s[2] != 3 || static_cast<uint64_t>(s[0]) * s[1] * 3 != image.size()) {
         return {kOrtxErrorInvalidArgument, "Invalid decoded RGB image shape."};
       }
       shape.assign(s.begin(), s.end());
