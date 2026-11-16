@@ -30,8 +30,25 @@ std::tuple<std::unique_ptr<ImageRawData[]>, size_t> LoadRawImages(const char* im
   return ort_extensions::LoadRawData<const char* const*, ImageRawData>(image_paths, image_paths + num_images);
 }
 
+std::optional<PixelFormat> ParsePixelFormat(const char* name) noexcept {
+  if (name == nullptr) {
+    return std::nullopt;
+  }
+  const std::string_view format = name;
+  if (format == "RGB8") {
+    return PixelFormat::kRGB8;
+  }
+  if (format == "RGBA8") {
+    return PixelFormat::kRGBA8;
+  }
+  if (format == "BGRA8") {
+    return PixelFormat::kBGRA8;
+  }
+  return std::nullopt;
+}
+
 OrtxStatus LoadImagesFromPixels(const void* const data[], const size_t data_sizes[], const uint32_t widths[],
-                                const uint32_t heights[], const size_t row_strides[], OrtxPixelFormat format,
+                                const uint32_t heights[], const size_t row_strides[], PixelFormat format,
                                 size_t num_images, std::unique_ptr<ImageRawData[]>& images,
                                 std::vector<ImageShape>& shapes) {
   constexpr size_t kMaxBatchBytes = size_t{512} * 1024 * 1024;
@@ -41,10 +58,7 @@ OrtxStatus LoadImagesFromPixels(const void* const data[], const size_t data_size
   if (num_images > kMaxBatchBytes / 3) {
     return {kOrtxErrorInvalidArgument, "Images from pixels exceed the 512 MiB batch limit."};
   }
-  if (format != OrtxPixelFormat_RGB8 && format != OrtxPixelFormat_RGBA8 && format != OrtxPixelFormat_BGRA8) {
-    return {kOrtxErrorInvalidArgument, "Unsupported pixel format."};
-  }
-  const size_t channels = format == OrtxPixelFormat_RGB8 ? 3 : 4;
+  const size_t channels = format == PixelFormat::kRGB8 ? 3 : 4;
 
   size_t total_bytes = 0;
   for (size_t i = 0; i < num_images; ++i) {
@@ -89,9 +103,9 @@ OrtxStatus LoadImagesFromPixels(const void* const data[], const size_t data_size
     for (size_t y = 0; y < height; ++y) {
       const uint8_t* src = static_cast<const uint8_t*>(data[i]) + y * row_strides[i];
       uint8_t* dst = rgb.data() + y * width * 3;
-      if (format == OrtxPixelFormat_RGB8) {
+      if (format == PixelFormat::kRGB8) {
         std::copy_n(src, width * 3, dst);
-      } else if (format == OrtxPixelFormat_RGBA8) {
+      } else if (format == PixelFormat::kRGBA8) {
         for (size_t x = 0; x < width; ++x, src += 4, dst += 3) {
           dst[0] = src[0];
           dst[1] = src[1];

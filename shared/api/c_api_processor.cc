@@ -39,16 +39,22 @@ struct RawImagesObject : public OrtxObjectImpl {
 extError_t ORTX_API_CALL OrtxCreateImagesFromPixels(OrtxRawImages** images, const void* data[],
                                                     const size_t data_sizes[], const uint32_t widths[],
                                                     const uint32_t heights[], const size_t row_strides[],
-                                                    OrtxPixelFormat format, size_t num_images) {
+                                                    const char* pixel_format, size_t num_images) {
   if (images == nullptr) {
     ReturnableStatus::SetLastErrorMessage("Invalid argument");
     return kOrtxErrorInvalidArgument;
   }
   *images = nullptr;
 
+  const auto format = ParsePixelFormat(pixel_format);
+  if (!format) {
+    ReturnableStatus::SetLastErrorMessage("pixel_format must be \"RGB8\", \"RGBA8\" or \"BGRA8\".");
+    return kOrtxErrorInvalidArgument;
+  }
+
   try {
     auto images_obj = std::make_unique<RawImagesObject>();
-    const OrtxStatus status = LoadImagesFromPixels(data, data_sizes, widths, heights, row_strides, format, num_images,
+    const OrtxStatus status = LoadImagesFromPixels(data, data_sizes, widths, heights, row_strides, *format, num_images,
                                                    images_obj->images, images_obj->shapes);
     if (!status.IsOk()) {
       ReturnableStatus::SetLastErrorMessage(status.Message());

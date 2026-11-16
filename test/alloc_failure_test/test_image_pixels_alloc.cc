@@ -53,8 +53,7 @@ TEST(ImagePixelsAllocTest, OutOfMemoryIsReturnedAsAnError) {
       ASSERT_LT(index, 100);
       OrtxRawImages* images = reinterpret_cast<OrtxRawImages*>(1);
       FailAllocation(index);
-      const extError_t status =
-          OrtxCreateImagesFromPixels(&images, data, &size, &side, &side, &stride, OrtxPixelFormat_RGB8, 1);
+      const extError_t status = OrtxCreateImagesFromPixels(&images, data, &size, &side, &side, &stride, "RGB8", 1);
       const bool failed = StopFailing();
       if (!failed) {
         EXPECT_GT(index, 0);  // the call allocates, so earlier rounds did fail one

@@ -4,6 +4,7 @@
 #pragma once
 #include <array>
 #include <list>
+#include <optional>
 #include <tuple>
 #include <vector>
 #include <unordered_map>
@@ -26,10 +27,17 @@ std::tuple<std::unique_ptr<ImageRawData[]>, size_t> LoadRawImages(
 // Height, width, channels of a decoded RGB image.
 using ImageShape = std::array<int64_t, 3>;
 
+// Byte order of a decoded 8-bit pixel. The C API names these with strings, so the enum stays out of the
+// public headers and their ABI.
+enum class PixelFormat { kRGB8, kRGBA8, kBGRA8 };
+
+// The format "RGB8", "RGBA8" or "BGRA8" names, or nullopt for anything else, including null.
+std::optional<PixelFormat> ParsePixelFormat(const char* name) noexcept;
+
 // Validates every image, then copies them into owned, packed RGB. See OrtxCreateImagesFromPixels.
 // Throws std::bad_alloc when out of memory; images and shapes are only set on success.
 OrtxStatus LoadImagesFromPixels(const void* const data[], const size_t data_sizes[], const uint32_t widths[],
-                                const uint32_t heights[], const size_t row_strides[], OrtxPixelFormat format,
+                                const uint32_t heights[], const size_t row_strides[], PixelFormat format,
                                 size_t num_images, std::unique_ptr<ImageRawData[]>& images,
                                 std::vector<ImageShape>& shapes);
 

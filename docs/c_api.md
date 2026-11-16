@@ -30,14 +30,14 @@ decoded pixels can pass them with `OrtxCreateImagesFromPixels` instead of encodi
 const void* data[] = {pixels};
 size_t size = row_stride * (height - 1) + width * 4;
 OrtxRawImages* images = NULL;
-extError_t err = OrtxCreateImagesFromPixels(&images, data, &size, &width, &height, &row_stride,
-                                            OrtxPixelFormat_BGRA8, 1);
+extError_t err = OrtxCreateImagesFromPixels(&images, data, &size, &width, &height, &row_stride, "BGRA8", 1);
 ```
 
-Each image is a top-down buffer of 8-bit RGB, RGBA or BGRA pixels with a row stride in bytes, so
-rows can be padded. Alpha is dropped without compositing, as the libpng decoder does: pass straight
-(unpremultiplied) or opaque pixels, and convert premultiplied ones first. The pixels are copied, so
-the caller can free them on return. Images are limited to 16384 pixels per side and 100 million
+Each image is a top-down buffer of 8-bit pixels with a row stride in bytes, so rows can be padded.
+The format string names the byte order of every pixel in the batch: `"RGB8"`, `"RGBA8"` or `"BGRA8"`.
+Alpha is dropped without compositing, as the libpng decoder does: pass straight (unpremultiplied) or
+opaque pixels, and convert premultiplied ones first. The pixels are copied, so the caller can free
+them on return. Images are limited to 16384 pixels per side and 100 million
 pixels, the decoders' limits, and a batch to 512 MiB of RGB. The workflow must start with
 `DecodeImage`, which skips the codec for these images but keeps its `color_space`; later transforms
 are unchanged. No color management or orientation is applied. A Windows build used where WIC is

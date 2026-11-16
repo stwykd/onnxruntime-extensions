@@ -53,22 +53,17 @@ extError_t ORTX_API_CALL OrtxLoadImages(OrtxRawImages** images, const char** ima
  */
 extError_t ORTX_API_CALL OrtxCreateRawImages(OrtxRawImages** images, const void* data[], const int64_t sizes[], size_t num_images);
 
-/** Byte order of one 8-bit pixel in OrtxCreateImagesFromPixels. Alpha, if present, is ignored. */
-typedef enum OrtxPixelFormat {
-  OrtxPixelFormat_RGB8 = 0,   // R, G, B
-  OrtxPixelFormat_RGBA8 = 1,  // R, G, B, A
-  OrtxPixelFormat_BGRA8 = 2,  // B, G, R, A (Skia's kBGRA_8888, Windows' 32 bit DIBs)
-} OrtxPixelFormat;
-
 /**
  * @brief Copies decoded 8-bit pixels into an image batch, so PNG/JPEG encoding can be skipped.
  *
  * Unlike OrtxCreateRawImages, which takes encoded bytes, each image here is a top-down buffer of
- * interleaved pixels in the given byte order, `widths[i]` pixels per row and `heights[i]` rows.
- * `row_strides[i]` is the distance between rows in bytes, at least `widths[i] * channels`, so row
- * padding is allowed. `data_sizes[i]` must cover `(heights[i] - 1) * row_strides[i] + widths[i] * channels`;
- * the last row's padding isn't read. Widths and heights must be nonzero and at most 16384, with at
- * most 100 million pixels per image (the codecs' limits), and the batch can hold at most 512 MiB of RGB.
+ * interleaved pixels, `widths[i]` pixels per row and `heights[i]` rows. `pixel_format` names the byte
+ * order of every pixel in the batch: "RGB8" (R, G, B), "RGBA8" (R, G, B, A) or "BGRA8" (B, G, R, A, as
+ * in Skia's kBGRA_8888 or Windows' 32 bit DIBs). `row_strides[i]` is the distance between rows in bytes,
+ * at least `widths[i] * channels`, so row padding is allowed. `data_sizes[i]` must cover
+ * `(heights[i] - 1) * row_strides[i] + widths[i] * channels`; the last row's padding isn't read. Widths
+ * and heights must be nonzero and at most 16384, with at most 100 million pixels per image (the codecs'
+ * limits), and the batch can hold at most 512 MiB of RGB.
  *
  * Alpha is dropped without compositing, as the libpng decoder does, so pixels must be straight
  * (unpremultiplied) or opaque. Callers convert premultiplied pixels first. No color management,
@@ -85,14 +80,14 @@ typedef enum OrtxPixelFormat {
  * @param[in] widths Array of num_images widths in pixels.
  * @param[in] heights Array of num_images heights in pixels.
  * @param[in] row_strides Array of num_images row strides in bytes.
- * @param[in] format Pixel byte order of every image in the batch.
+ * @param[in] pixel_format "RGB8", "RGBA8" or "BGRA8", for every image in the batch.
  * @param[in] num_images Number of images, at least one.
  * @return An `extError_t` value indicating the success or failure of the operation.
  */
 extError_t ORTX_API_CALL OrtxCreateImagesFromPixels(OrtxRawImages** images, const void* data[],
                                                     const size_t data_sizes[], const uint32_t widths[],
                                                     const uint32_t heights[], const size_t row_strides[],
-                                                    OrtxPixelFormat format, size_t num_images);
+                                                    const char* pixel_format, size_t num_images);
 
 /**
  * @brief Pre-processes the given raw images using the specified processor.

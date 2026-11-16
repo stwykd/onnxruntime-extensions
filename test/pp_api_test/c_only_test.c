@@ -18,7 +18,7 @@ extError_t get_word_piece_info(const OrtxTokenizer* tokenizer, extTokenId_t toke
 extError_t create_images_from_bgra(const void* pixels, size_t data_size, uint32_t width, uint32_t height,
                                    size_t row_stride, OrtxRawImages** images) {
   const void* data[] = {pixels};
-  return OrtxCreateImagesFromPixels(images, data, &data_size, &width, &height, &row_stride, OrtxPixelFormat_BGRA8, 1);
+  return OrtxCreateImagesFromPixels(images, data, &data_size, &width, &height, &row_stride, "BGRA8", 1);
 }
 
 extError_t tokenize_text(OrtxTokenizer* tokenizer, const char* text, char** decoded_text) {
